@@ -5,6 +5,7 @@
  */
 
 import React, { Component } from 'react';
+import WS from 'react-native-websocket';
 import {
   StyleSheet,
   Text,
@@ -13,8 +14,11 @@ import {
   View,
   PermissionsAndroid
 } from 'react-native';
+import nextId from "react-id-generator";
 
 import wifi from 'react-native-android-wifi';
+
+const HOST = "wss://untouch-server.herokuapp.com/";
 
 const calculateApproxDistance = (signalLevelInDbM,freqInKHz) => {
   // XXX - Todo ask someone better with domain expertise. 
@@ -34,7 +38,7 @@ export default class App extends Component {
       ssidExist: null,
       currentSSID: null,
       currentBSSID: null, 
-      wifiList: null,
+      wifiList: {},
       modalVisible: false,
       status:null,
       level: null,
@@ -44,8 +48,8 @@ export default class App extends Component {
   }
 
   componentDidMount (){
-    console.log(wifi);
     this.askForUserPermissions();
+    this.myId = nextId();
   }
 
   async askForUserPermissions() {
@@ -71,10 +75,14 @@ export default class App extends Component {
     wifi.loadWifiList((wifiStringList) => {
         console.log(wifiStringList);
         var wifiArray = JSON.parse(wifiStringList);
-        this.setState({
-          wifiList:wifiArray,
-          modalVisible: true
-        });
+        var wifiListComponents = {};
+        for (w in wifiArray){
+          wifiListComponents[wifiArray[w].BSSID] = calculateApproxDistance(
+            wifiArray[w].level, 
+            wifiArray[w].frequency,
+            );
+        }
+        this.ws.send(JSON.stringify({[this.myId]:wifiListComponents}));
       },
       (error) => {
         console.log(error);
@@ -82,25 +90,22 @@ export default class App extends Component {
     );
   }
 
-  renderWifiList(){
-    var wifiListComponents = [];
-    for (w in this.state.wifiList){
-      wifiListComponents.push(
-        <View key={w} style={styles.instructionsContainer}>
-          <Text style={styles.instructionsTitle}>{this.state.wifiList[w].SSID}</Text>
-          <Text>BSSID: {this.state.wifiList[w].BSSID}</Text>
-          <Text>Frequency: {this.state.wifiList[w].frequency}</Text>
-          <Text>Level: {this.state.wifiList[w].level}</Text>
-          <Text>Distance: {calculateApproxDistance(this.state.wifiList[w].level, this.state.wifiList[w].frequency)} </Text>
-        </View>
-      );
-    }
-    return wifiListComponents;
-  }
-
   render() {
     return (
     <ScrollView>
+      <WS
+          ref={ref => {this.ws = ref}}
+          url={HOST}
+          onOpen={() => {
+            console.log('Open!')
+          }}
+          onMessage={
+            (response) => this.setState({wifiList :JSON.parse(response.data)})
+          }
+          onError={console.log}
+          onClose={console.log}
+          reconnect // Will try to reconnect onClose
+        />
       <View style={styles.container}>
         <View style={styles.instructionsContainer}>
           <Text style={styles.instructionsTitle}>Get all wifi networks in range</Text>
@@ -108,7 +113,10 @@ export default class App extends Component {
             <Text style={styles.buttonText}>Available WIFI Networks</Text>
           </TouchableHighlight>
         </View>
-        {this.renderWifiList()}
+        <Text>
+        {JSON.stringify(this.state.wifiList)}
+        </Text>
+        
       </View>
     </ScrollView>
     );
